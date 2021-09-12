@@ -24,96 +24,116 @@ void drive_robot(float lin_x, float ang_z)
 void process_image_callback(const sensor_msgs::Image img)
 {
 
-    int white_pixel = 255;
-    bool bBallFound = false;
-    
-    // Loop through each pixel in the image and check if there's a bright white one
-    uint32_t oneFourth = img.width / 4;
-    uint32_t threeFourth = oneFourth * 3;    
+	int white_pixel = 255;
+	bool bBallFound = false;
 
-    enum class moveDirection { Left, Middle, Right }; 
-    moveDirection dir = moveDirection::Middle;
-    uint32_t bytesPerCol = img.step/img.width;
-	
-    for (uint32_t i = 0; i < img.height && !bBallFound; i++)//rows
-    {
-	for (uint32_t j = 0; j < img.width && !bBallFound; j++)//cols
+	// Loop through each pixel in the image and check if there's a bright white one
+	uint32_t oneFourth = img.width / 4;
+	uint32_t threeFourth = oneFourth * 3;
+
+	enum class moveDirection { Left, Middle, Right };
+	moveDirection dir = moveDirection::Middle;
+	uint32_t bytesPerCol = img.step / img.width;
+
+	uint32_t totalNoOfPixels = img.height * img.step;
+	uint32_t noOfWhitePixels = 0;
+	for (uint32_t i = 0; i < img.height; i++)//rows
 	{
-	    for (uint32_t k = 0; k < bytesPerCol && !bBallFound; k++)//bytes per column
-	    {
-		uint32_t n = i*img.step+ j*bytesPerCol+ k;
-		if (n<img.height * img.step && img.data[n] == white_pixel) 
+		for (uint32_t j = 0; j < img.width; j++)//cols
 		{
-		 	bBallFound = true; 		 	
-				 
-		 	//Identify if this pixel falls in the left, middle, or right side of the image
-		 	if(j < oneFourth)
-		 	{
-		   	   dir = moveDirection::Left;
-		 	}
-		 	else if(j>oneFourth && j<threeFourth)
-		 	{
-		    	   dir = moveDirection::Middle;	
-		 	}					
-		 	else if(j > threeFourth) 
-		 	{
-		    	   dir = moveDirection::Right;
-		 	}
-		 }	
-	    }
+			for (uint32_t k = 0; k < bytesPerCol; k++)//bytes per column
+			{
+				uint32_t n = i * img.step + j * bytesPerCol + k;
+				if (n < img.height * img.step && img.data[n] == white_pixel)
+				{
+					if (!bBallFound)
+					  bBallFound = true;
+
+					noOfWhitePixels++;
+
+					//Identify if this pixel falls in the left, middle, or right side of the image
+					if (j < oneFourth)
+					{
+						dir = moveDirection::Left;
+					}
+					else if (j > oneFourth && j < threeFourth)
+					{
+						dir = moveDirection::Middle;
+					}
+					else if (j > threeFourth)
+					{
+						dir = moveDirection::Right;
+					}
+				}
+			}
+		}
 	}
-     }
-	
-    // Depending on the white ball position, call the drive_bot function and pass velocities to it
-    float lin_x, ang_z;
-    if(bBallFound)
-    {
-	switch(dir)
-        {
-	   case moveDirection::Left:
-	   {
-		lin_x = 0.0;
-	   	ang_z = 0.5;
-		ROS_INFO_STREAM("Move Left");
-	   }
-	   break;
-	   case moveDirection::Right:
-           {
-		lin_x = 0.0;
-	   	ang_z = -0.5;
-		ROS_INFO_STREAM("Move Right");
-	   }
-	   break;
-	   case moveDirection::Middle:
-           {
-		lin_x = 0.25;
-	   	ang_z = 0.0;
-		ROS_INFO_STREAM("Move Forward");
-	   }
-	   break;
-	   default:
-           {
-		lin_x = 0.0;
-	   	ang_z = 0.0;
-		ROS_INFO_STREAM("In DEFAULT");
-	   }
-	   break;
 
-        }	
-
-    	drive_robot(lin_x,ang_z);
-        if(bRobotStopped)
-	    bRobotStopped = false;
-     }
-     else // Request a stop when there's no white ball seen by the camera
-     {
-	if(!bRobotStopped )//if robot was moving, issue a stop move
+	// Depending on the white ball position, call the drive_bot function and pass velocities to it
+	float lin_x, ang_z;
+	bool bStopTheRobot = false;
+	if (bBallFound)
 	{
-	  drive_robot(0.0,0.0);
-          bRobotStopped = true;
-	  ROS_INFO_STREAM("Stop the robot");
-	}        
-     }
+		//check ratio of white pixels to the total number of pixels
+		float nPercentageWhite = ((float)noOfWhitePixels / (float)totalNoOfPixels);
+		//ROS_INFO("percentage : %1.2f", (float)nPercentageWhite);
+		if (nPercentageWhite > 0.15f)//Too close. Stop the robot.
+		{
+			bStopTheRobot = true;
+			ROS_INFO_STREAM("Close to ball....");
+		}
+		else
+		{
+			switch (dir)
+			{
+			case moveDirection::Left:
+			{
+				lin_x = 0.0;
+				ang_z = 0.5;
+				ROS_INFO_STREAM("Move Left");
+			}
+			break;
+			case moveDirection::Right:
+			{
+				lin_x = 0.0;
+				ang_z = -0.5;
+				ROS_INFO_STREAM("Move Right");
+			}
+			break;
+			case moveDirection::Middle:
+			{
+				lin_x = 2.0;
+				ang_z = 0.0;
+				ROS_INFO_STREAM("Move Forward");
+			}
+			break;
+			default:
+			{
+				lin_x = 0.0;
+				ang_z = 0.0;
+				ROS_INFO_STREAM("In DEFAULT");
+			}
+			break;
+			}
+
+			drive_robot(lin_x, ang_z);
+			if (bRobotStopped)
+				bRobotStopped = false;
+		}
+	}
+	else 
+	{
+		// Request a stop when there's no white ball seen by the camera
+		if (!bRobotStopped)//if robot was moving, issue a stop move
+		  bStopTheRobot = true;
+	}
+
+	if (bStopTheRobot)
+	{
+		drive_robot(0.0, 0.0);
+		bRobotStopped = true;
+		ROS_INFO_STREAM("Stop the robot");
+	}
 }
 
 int main(int argc, char** argv)
